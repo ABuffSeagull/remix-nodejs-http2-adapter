@@ -39,13 +39,27 @@ export default async function buildStreamHandler({ build }) {
 		} = headers;
 
 		if (requestPath && staticMap.has(requestPath)) {
-			const fullPath = /** @type {string} */ (staticMap.get(requestPath));
 			const cacheValue = requestPath.startsWith(build.publicPath)
 				? `max-age=${60 * 60 * 24 * 365}, immutable`
 				: `max-age=${60 * 60 * 6}`;
+
+			let fullPath = /** @type {string} */ (
+				staticMap.get(`${requestPath}.br`) ?? staticMap.get(`${requestPath}.gz`) ?? staticMap.get(requestPath)
+			);
+
+			const contentType = lookup(requestPath) ?? "application/octet-stream";
+
+			let encoding = "identity";
+			if (fullPath.endsWith(".br")) {
+				encoding = "br";
+			} else if (fullPath.endsWith(".gz")) {
+				encoding = "gzip";
+			}
+
 			stream.respondWithFile(fullPath, {
 				"cache-control": `public, ${cacheValue}`,
-				"content-type": lookup(fullPath) ?? "application/octet-stream",
+				"content-type": contentType,
+				"content-encoding": encoding,
 			});
 			return;
 		}
