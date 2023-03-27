@@ -2,14 +2,17 @@
 import * as http2 from "node:http2";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import * as zlib from "node:zlib";
 import {
 	Request,
 	createRequestHandler,
 	createReadableStreamFromReadable,
 	writeReadableStreamToWritable,
+	Response,
 } from "@remix-run/node";
 import { lookup } from "mrmime";
-import { text } from "stream/consumers";
+import { PassThrough } from "node:stream";
+import { once } from "node:events";
 
 /**
  * @param {Object} options
@@ -30,6 +33,7 @@ export default async function buildStreamHandler({ build }) {
 	 * @param {http2.IncomingHttpHeaders} headers
 	 */
 	return async function onStream(stream, headers) {
+		const start = performance.now();
 		const {
 			":scheme": scheme,
 			":authority": authority,
@@ -67,15 +71,15 @@ export default async function buildStreamHandler({ build }) {
 		const controller = new AbortController();
 		stream.once("aborted", () => controller.abort());
 
-		const response = await handler(
-			new Request(`${scheme}://${authority}${requestPath}`, {
-				method: method,
-				// TODO: replace with Readable.toWeb when stable
-				body: method == "GET" || method == "HEAD" ? null : createReadableStreamFromReadable(stream),
-				headers: otherRequestHeaders,
-				signal: controller.signal,
-			}),
-		);
+		const request = new Request(`${scheme}://${authority}${requestPath}`, {
+			method: method,
+			// TODO: replace with Readable.toWeb when stable
+			body: method == "GET" || method == "HEAD" ? null : createReadableStreamFromReadable(stream),
+			headers: otherRequestHeaders,
+			signal: controller.signal,
+		});
+
+		const response = await handler(request);
 
 		let encoding = "identity";
 		if (headers["accept-encoding"]?.includes("br")) {
@@ -117,6 +121,14 @@ export default async function buildStreamHandler({ build }) {
 		} else {
 			stream.end();
 		}
+		const duration = performance.now() - start;
+		this.emit("respond", {
+			duration,
+			request: new Request(request, { body: null }),
+			response: new Response(null, response),
+		});
+
+		await once(stream, "close");
 	};
 }
 
