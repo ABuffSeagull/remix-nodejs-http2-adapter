@@ -1,8 +1,13 @@
 {
-	"files": ["index.ts"],
-	"extends": ["@tsconfig/node16/tsconfig.json", "@tsconfig/esm/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
-	"compilerOptions": {
-		"composite": true,
-		"declarationMap": true
-	}
+  "files": ["index.ts"],
+  "extends": [
+    "@tsconfig/node16/tsconfig.json",
+    "@tsconfig/strictest/tsconfig.json"
+  ],
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "composite": true,
+    "declarationMap": true
+  }
 }
