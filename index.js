@@ -25,6 +25,7 @@ export default async function buildStreamHandler({ build }) {
 	const handler = createRequestHandler(build);
 
 	/**
+	 * @this {http2.Http2Server}
 	 * @param {http2.ServerHttp2Stream} stream
 	 * @param {http2.IncomingHttpHeaders} headers
 	 */
