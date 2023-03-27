@@ -77,13 +77,43 @@ export default async function buildStreamHandler({ build }) {
 			}),
 		);
 
+		let encoding = "identity";
+		if (headers["accept-encoding"]?.includes("br")) {
+			encoding = "br";
+		} else if (headers["accept-encoding"]?.includes("gzip")) {
+			encoding = "gzip";
+		} else if (headers["accept-encoding"]?.includes("deflate")) {
+			encoding = "deflate";
+		}
 		stream.respond({
 			...Object.fromEntries(response.headers),
 			":status": response.status,
+			"content-encoding": encoding,
 		});
 		if (response.body) {
-			// TODO: replace with Readable.fromWeb when stable
-			await writeReadableStreamToWritable(response.body, stream);
+			let compression = null;
+			switch (encoding) {
+				case "br": {
+					compression = zlib.createBrotliCompress({
+						[zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
+					});
+					break;
+				}
+				case "gzip": {
+					compression = zlib.createGzip();
+					break;
+				}
+				case "deflate": {
+					compression = zlib.createDeflate();
+					break;
+				}
+				default: {
+					compression = new PassThrough();
+					break;
+				}
+			}
+			compression.pipe(stream);
+			writeReadableStreamToWritable(response.body, compression);
 		} else {
 			stream.end();
 		}
