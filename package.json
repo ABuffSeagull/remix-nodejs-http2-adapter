@@ -2,13 +2,13 @@
   "name": "remix-nodejs-builtin-adapter",
   "version": "1.0.0",
   "type": "module",
-  "source": "index.ts",
-  "main": "dist/index.cjs",
-  "module": "dist/index.mjs",
-  "types": "index.d.ts",
+  "source": "./index.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
   "exports": {
-    "require": "dist/index.cjs",
-    ".": "dist/index.mjs"
+    "require": "./dist/index.cjs",
+    "default": "./dist/index.mjs"
   },
   "private": true,
   "sideEffects": false,
