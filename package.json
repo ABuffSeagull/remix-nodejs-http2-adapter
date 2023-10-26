@@ -33,7 +33,7 @@
     "@tsconfig/node16": "^1.0.3",
     "@tsconfig/strictest": "^2.0.0",
     "@types/mime-db": "^1.43.1",
-    "@types/node": "^16.18.21",
+    "@types/node": "^18.0.0",
     "microbundle": "^0.15.1",
     "typescript": "^5.0.2"
   }
