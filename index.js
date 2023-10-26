@@ -110,7 +110,7 @@ export default async function buildRequestHandler({ build }) {
 		} else if (serverRequest.headers["accept-encoding"]?.includes("deflate")) {
 			encoding = "deflate";
 		}
-		response.writeHead(response.status, {
+		serverResponse.writeHead(response.status, {
 			...Object.fromEntries(response.headers),
 			"content-encoding": encoding,
 		});
@@ -148,7 +148,7 @@ export default async function buildRequestHandler({ build }) {
 			response: new Response(null, response),
 		});
 
-		await once(response, "finish");
+		await once(serverResponse, "finish");
 	};
 }
 
