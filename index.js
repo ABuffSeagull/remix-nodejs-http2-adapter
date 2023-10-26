@@ -3,157 +3,205 @@ import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
-import { once } from "node:events";
 import { performance } from "node:perf_hooks";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import process from "node:process";
 
 import {
-	createReadableStreamFromReadable,
-	createRequestHandler,
-	writeReadableStreamToWritable,
+  createReadableStreamFromReadable,
+  createRequestHandler,
+  writeReadableStreamToWritable,
 } from "@remix-run/node";
-import db from "mime-db";
-
-const extensionMap = /** @type {Map<string, string>} */ (new Map());
-for (const [mimeType, { extensions = [] }] of Object.entries(db)) {
-	for (const ext of extensions) {
-		extensionMap.set(ext, mimeType);
-	}
-}
 
 /**
  * @param {Object} props
  * @param {import("@remix-run/node").ServerBuild} props.build
+ * @param {(req: import('node:http2').Http2ServerResponse) => Promise<boolean>} props.staticHandler
+ * @param {typeof process.env.NODE_ENV} [props.mode=process.env.NODE_ENV]
  */
-export default async function buildRequestHandler({ build }) {
-	const staticMap = /** @type Map<string, string> */ (new Map());
+export function buildRequestHandler({
+  build,
+  staticHandler,
+  mode = process.env.NODE_ENV,
+}) {
+  const handler = createRequestHandler(build, mode);
 
-	const publicPath = path.resolve(path.dirname(build.assetsBuildDirectory));
-	await buildStaticFiles(publicPath, staticMap, publicPath);
+  /**
+   * @this {import("http2").Http2Server}
+   * @param {import("http2").Http2ServerRequest} serverRequest
+   * @param {import("http2").Http2ServerResponse} serverResponse
+   */
+  return async function onRequest(serverRequest, serverResponse) {
+    const start = performance.now();
 
-	const handler = createRequestHandler(build);
+    if (await staticHandler(serverResponse)) return;
 
-	/**
-	 * @this {import("http2").Http2Server}
-	 * @param {import("http2").Http2ServerRequest} serverRequest
-	 * @param {import("http2").Http2ServerResponse} serverResponse
-	 */
-	return async function onRequest(serverRequest, serverResponse) {
-		const start = performance.now();
-		const {
-			":scheme": scheme,
-			":authority": authority,
-			":path": requestPath,
-			":method": method,
-			...otherRequestHeaders
-		} = serverRequest.headers;
+    const {
+      ":scheme": scheme,
+      ":authority": authority,
+      ":path": requestPath,
+      ":method": method,
+      ...otherRequestHeaders
+    } = serverRequest.headers;
+    const controller = new AbortController();
+    serverRequest.once("aborted", () => controller.abort());
 
-		if (requestPath && staticMap.has(requestPath)) {
-			const cacheValue = requestPath.startsWith(build.publicPath)
-				? `max-age=${60 * 60 * 24 * 365}, immutable`
-				: `max-age=${60 * 60 * 6}`;
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(otherRequestHeaders)) {
+      if (Array.isArray(value)) {
+        for (const v of value) {
+          headers.append(key, v);
+        }
+      } else if (value) {
+        headers.append(key, value);
+      }
+    }
 
-			const fullPath =
-				staticMap.get(`${requestPath}.br`) ??
-				staticMap.get(`${requestPath}.gz`) ??
-				staticMap.get(requestPath);
+    const request = new Request(
+      `${scheme}://${authority ?? otherRequestHeaders.host}${requestPath}`,
+      {
+        method,
+        // TODO: replace with Readable.toWeb when stable
+        body:
+          method == "GET" || method == "HEAD"
+            ? null
+            : createReadableStreamFromReadable(serverRequest),
+        duplex: "half",
+        headers,
+        signal: controller.signal,
+      },
+    );
 
-			assert.ok(fullPath, `Path ${requestPath} went missing from static map`);
+    const response = await handler(request);
 
-			const contentType =
-				extensionMap.get(path.extname(requestPath).slice(1)) ??
-				"application/octet-stream";
+    let encoding = "identity";
+    const accept = serverRequest.headers["accept-encoding"] ?? "";
+    if (accept.includes("br")) {
+      encoding = "br";
+    } else if (accept.includes("gzip")) {
+      encoding = "gzip";
+    } else if (accept.includes("deflate")) {
+      encoding = "deflate";
+    }
+    serverResponse.writeHead(response.status, {
+      "cache-control": "no-cache",
+      "content-encoding": encoding,
+      ...Object.fromEntries(response.headers),
+    });
+    if (response.body) {
+      let compression = null;
+      switch (encoding) {
+        case "br": {
+          compression = zlib.createBrotliCompress({
+            [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
+          });
+          break;
+        }
+        case "gzip": {
+          compression = zlib.createGzip();
+          break;
+        }
+        case "deflate": {
+          compression = zlib.createDeflate();
+          break;
+        }
+        default: {
+          compression = new PassThrough();
+          break;
+        }
+      }
+      compression.pipe(serverResponse);
+      await writeReadableStreamToWritable(response.body, compression);
+    } else {
+      serverResponse.end();
+    }
+    if (this.listenerCount("response") > 0) {
+      const duration = performance.now() - start;
+      this.emit("response", {
+        duration,
+        request: new Request(`${scheme}://${authority}${requestPath}`, {
+          method: method,
+          headers,
+        }),
+        response: new Response(null, response),
+      });
+    }
+  };
+}
 
-			let encoding = "identity";
-			if (fullPath.endsWith(".br")) {
-				encoding = "br";
-			} else if (fullPath.endsWith(".gz")) {
-				encoding = "gzip";
-			}
+/**
+ * @param {import("@remix-run/node").ServerBuild} build
+ */
+export async function buildDefaultStaticHandler(build) {
+  const staticMap = /** @type Map<string, string> */ (new Map());
 
-			await pipeline(
-				fs.createReadStream(fullPath),
-				serverResponse.writeHead(200, {
-					"cache-control": `public, ${cacheValue}`,
-					"content-type": contentType,
-					"content-encoding": encoding,
-				}),
-			);
+  const publicPath = path.resolve(path.dirname(build.assetsBuildDirectory));
+  await buildStaticFiles(publicPath, staticMap, publicPath);
 
-			return;
-		}
+  const { default: db } = await import("mime-db");
+  const extensionMap = /** @type {Map<string, string>} */ (new Map());
+  for (const [mimeType, { extensions = [] }] of Object.entries(db)) {
+    for (const ext of extensions) {
+      extensionMap.set(ext, mimeType);
+    }
+  }
+  /**
+   * @param {import('node:http2').Http2ServerResponse} response
+   */
+  return async (response) => {
+    const { req: request } = response;
+    const controller = new AbortController();
+    request.once("aborted", () => controller.abort());
 
-		const controller = new AbortController();
-		serverResponse.once("close", () => controller.abort());
+    const { ":path": requestPath } = request.headers;
 
-		const request = new Request(`${scheme}://${authority}${requestPath}`, {
-			method: method,
-			// TODO: replace with Readable.toWeb when stable
-			body:
-				method == "GET" || method == "HEAD"
-					? null
-					: createReadableStreamFromReadable(serverRequest),
-			duplex: true,
-			headers: otherRequestHeaders,
-			signal: controller.signal,
-		});
+    if (!requestPath || !staticMap.has(requestPath)) return false;
+    const cacheValue = requestPath.startsWith(build.publicPath)
+      ? `max-age=${60 * 60 * 24 * 365}, immutable`
+      : `max-age=${60 * 60 * 6}`;
 
-		const response = await handler(request);
+    const fullPath =
+      staticMap.get(`${requestPath}.br`) ??
+      staticMap.get(`${requestPath}.gz`) ??
+      staticMap.get(requestPath);
 
-		let encoding = "identity";
-		if (serverRequest.headers["accept-encoding"]?.includes("br")) {
-			encoding = "br";
-		} else if (serverRequest.headers["accept-encoding"]?.includes("gzip")) {
-			encoding = "gzip";
-		} else if (serverRequest.headers["accept-encoding"]?.includes("deflate")) {
-			encoding = "deflate";
-		}
-		serverResponse.writeHead(response.status, {
-			...Object.fromEntries(response.headers),
-			"content-encoding": encoding,
-		});
-		if (response.body) {
-			let compression = null;
-			switch (encoding) {
-				case "br": {
-					compression = zlib.createBrotliCompress({
-						[zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
-					});
-					break;
-				}
-				case "gzip": {
-					compression = zlib.createGzip();
-					break;
-				}
-				case "deflate": {
-					compression = zlib.createDeflate();
-					break;
-				}
-				default: {
-					compression = new PassThrough();
-					break;
-				}
-			}
-			compression.pipe(serverResponse);
-			writeReadableStreamToWritable(response.body, compression);
-		} else {
-			serverResponse.end();
-		}
-		if (this.listenerCount("response") > 0) {
-			const duration = performance.now() - start;
-			this.emit("response", {
-				duration,
-				request: new Request(`${scheme}://${authority}${requestPath}`, {
-					method: method,
-					headers: otherRequestHeaders,
-				}),
-				response: new Response(null, response),
-			});
-		}
+    assert.ok(fullPath, `Path ${requestPath} went missing from static map`);
 
-		await once(serverResponse, "finish");
-	};
+    const contentType =
+      extensionMap.get(path.extname(requestPath).slice(1)) ??
+      "application/octet-stream";
+
+    let encoding = "identity";
+    if (fullPath.endsWith(".br")) {
+      encoding = "br";
+    } else if (fullPath.endsWith(".gz")) {
+      encoding = "gzip";
+    }
+
+    try {
+      await pipeline(
+        fs.createReadStream(fullPath),
+        response.writeHead(200, {
+          "cache-control": `public, ${cacheValue}`,
+          "content-type": contentType,
+          "content-encoding": encoding,
+        }),
+        { signal: controller.signal },
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        error.code == "ABORT_ERR"
+      ) {
+        return;
+      }
+      throw error;
+    }
+
+    return true;
+  };
 }
 
 /**
@@ -162,24 +210,24 @@ export default async function buildRequestHandler({ build }) {
  * @param {string} pathname
  */
 async function buildStaticFiles(publicPath, staticMap, pathname) {
-	const dir = await fsp.opendir(pathname);
+  const dir = await fsp.opendir(pathname);
 
-	const subdirs = [];
-	for await (const entry of dir) {
-		if (entry.isDirectory()) {
-			subdirs.push(entry.name);
-		} else if (entry.isFile()) {
-			const relativePath = path.relative(
-				publicPath,
-				path.resolve(dir.path, entry.name),
-			);
-			staticMap.set(`/${relativePath}`, path.resolve(dir.path, entry.name));
-		}
-	}
+  const subdirs = [];
+  for await (const entry of dir) {
+    if (entry.isDirectory()) {
+      subdirs.push(entry.name);
+    } else if (entry.isFile()) {
+      const relativePath = path.relative(
+        publicPath,
+        path.resolve(dir.path, entry.name),
+      );
+      staticMap.set(`/${relativePath}`, path.resolve(dir.path, entry.name));
+    }
+  }
 
-	await Promise.all(
-		subdirs.map((name) =>
-			buildStaticFiles(publicPath, staticMap, path.resolve(pathname, name)),
-		),
-	);
+  await Promise.all(
+    subdirs.map((name) =>
+      buildStaticFiles(publicPath, staticMap, path.resolve(pathname, name)),
+    ),
+  );
 }
