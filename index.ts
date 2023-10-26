@@ -1,8 +1,10 @@
 import * as http2 from 'node:http2';
-import * as fs from 'node:fs/promises';
+import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
 import {PassThrough} from 'node:stream';
+import {pipeline} from 'node:stream/promises';
 import {once} from 'node:events';
 import {performance} from 'node:perf_hooks';
 import {
@@ -32,8 +34,8 @@ export default async function buildStreamHandler({build}: {build: ServerBuild}) 
 
 	return async function onStream(
 		this: http2.Http2Server,
-		stream: http2.ServerHttp2Stream,
-		headers: http2.IncomingHttpHeaders,
+		serverRequest: http2.Http2ServerRequest,
+		serverResponse: http2.Http2ServerResponse,
 	) {
 		const start = performance.now();
 		const {
@@ -42,7 +44,7 @@ export default async function buildStreamHandler({build}: {build: ServerBuild}) 
 			':path': requestPath,
 			':method': method,
 			...otherRequestHeaders
-		} = headers;
+		} = serverRequest.headers;
 
 		if (requestPath && staticMap.has(requestPath)) {
 			const cacheValue = requestPath.startsWith(build.publicPath)
@@ -61,21 +63,25 @@ export default async function buildStreamHandler({build}: {build: ServerBuild}) 
 				encoding = 'gzip';
 			}
 
-			stream.respondWithFile(fullPath, {
-				'cache-control': `public, ${cacheValue}`,
-				'content-type': contentType,
-				'content-encoding': encoding,
-			});
+			await pipeline(
+				fs.createReadStream(fullPath),
+				serverResponse.writeHead(200, {
+					'cache-control': `public, ${cacheValue}`,
+					'content-type': contentType,
+					'content-encoding': encoding,
+				}),
+			);
+
 			return;
 		}
 
 		const controller = new AbortController();
-		stream.once('aborted', () => controller.abort());
+		serverResponse.once('close', () => controller.abort());
 
 		const request = new Request(`${scheme}://${authority}${requestPath}`, {
 			method: method,
 			// TODO: replace with Readable.toWeb when stable
-			body: method == 'GET' || method == 'HEAD' ? null : createReadableStreamFromReadable(stream),
+			body: method == 'GET' || method == 'HEAD' ? null : createReadableStreamFromReadable(serverRequest),
 			headers: otherRequestHeaders,
 			signal: controller.signal,
 		});
@@ -83,16 +89,15 @@ export default async function buildStreamHandler({build}: {build: ServerBuild}) 
 		const response = await handler(request);
 
 		let encoding = 'identity';
-		if (headers['accept-encoding']?.includes('br')) {
+		if (serverRequest.headers['accept-encoding']?.includes('br')) {
 			encoding = 'br';
-		} else if (headers['accept-encoding']?.includes('gzip')) {
+		} else if (serverRequest.headers['accept-encoding']?.includes('gzip')) {
 			encoding = 'gzip';
-		} else if (headers['accept-encoding']?.includes('deflate')) {
+		} else if (serverRequest.headers['accept-encoding']?.includes('deflate')) {
 			encoding = 'deflate';
 		}
-		stream.respond({
+		response.writeHead(response.status, {
 			...Object.fromEntries(response.headers),
-			':status': response.status,
 			'content-encoding': encoding,
 		});
 		if (response.body) {
@@ -117,10 +122,10 @@ export default async function buildStreamHandler({build}: {build: ServerBuild}) 
 					break;
 				}
 			}
-			compression.pipe(stream);
+			compression.pipe(serverResponse);
 			writeReadableStreamToWritable(response.body, compression);
 		} else {
-			stream.end();
+			serverResponse.end();
 		}
 		const duration = performance.now() - start;
 		this.emit('respond', {
@@ -129,12 +134,12 @@ export default async function buildStreamHandler({build}: {build: ServerBuild}) 
 			response: new Response(null, response),
 		});
 
-		await once(stream, 'close');
+		await once(response, 'finish');
 	};
 }
 
 async function buildStaticFiles(publicPath: string, staticMap: Map<string, string>, pathname: string) {
-	const dir = await fs.opendir(pathname);
+	const dir = await fsp.opendir(pathname);
 
 	const subdirs = [];
 	for await (const entry of dir) {
