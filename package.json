@@ -1,14 +1,18 @@
 {
 	"name": "remix-nodejs-builtin-adapter",
+	"version": "1.0.0",
 	"type": "module",
 	"exports": {
 		".": "./index.js"
 	},
 	"types": "index.d.ts",
+	"files": [
+		"index.*"
+	],
 	"private": true,
 	"sideEffects": false,
 	"scripts": {
-		"prepare": "tsc --project tsconfig.json"
+		"prepare": "tsc --build"
 	},
 	"peerDependencies": {
 		"@remix-run/node": "^1.14.3"
