@@ -10,20 +10,23 @@
     "require": "./dist/index.cjs",
     "default": "./index.js"
   },
-  "files": ["dist/*", "index.js"],
+  "files": [
+    "dist/*",
+    "index.js"
+  ],
   "private": true,
   "sideEffects": false,
   "scripts": {
     "prepare": "microbundle --target node --format esm,cjs"
   },
   "peerDependencies": {
-    "@remix-run/node": "^1.14.3"
+    "@remix-run/node": "^2.0.0"
   },
   "engines": {
     "node": ">=16"
   },
   "dependencies": {
-    "mime-db": "^1.52.0"
+    "mime-db": "*"
   },
   "devDependencies": {
     "@tsconfig/esm": "^1.0.2",
