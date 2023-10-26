@@ -13,7 +13,14 @@ import {
 	Response,
 	type ServerBuild,
 } from '@remix-run/node';
-import {lookup} from 'mrmime';
+import db from 'mime-db';
+
+const extensionMap = new Map<string, string>();
+for (const [mimeType, {extensions = []}] of Object.entries(db)) {
+	for (const ext of extensions) {
+		extensionMap.set(ext, mimeType);
+	}
+}
 
 export default async function buildStreamHandler({build}: {build: ServerBuild}) {
 	const staticMap: Map<string, string> = new Map();
@@ -45,7 +52,7 @@ export default async function buildStreamHandler({build}: {build: ServerBuild}) 
 			let fullPath =
 				staticMap.get(`${requestPath}.br`) ?? staticMap.get(`${requestPath}.gz`) ?? staticMap.get(requestPath)!;
 
-			const contentType = lookup(requestPath) ?? 'application/octet-stream';
+			const contentType = extensionMap.get(path.extname(requestPath)) ?? 'application/octet-stream';
 
 			let encoding = 'identity';
 			if (fullPath.endsWith('.br')) {

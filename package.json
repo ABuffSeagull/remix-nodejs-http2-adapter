@@ -22,13 +22,14 @@
     "node": ">=16"
   },
   "dependencies": {
-    "mrmime": "^1.0.1"
+    "mime-db": "^1.52.0"
   },
   "devDependencies": {
     "@total-typescript/ts-reset": "^0.4.2",
     "@tsconfig/esm": "^1.0.2",
     "@tsconfig/node16": "^1.0.3",
     "@tsconfig/strictest": "^2.0.0",
+    "@types/mime-db": "^1.43.1",
     "@types/node": "^16.18.21",
     "microbundle": "^0.15.1",
     "typescript": "^5.0.2"
