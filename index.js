@@ -28,7 +28,7 @@ for (const [mimeType, { extensions = [] }] of Object.entries(db)) {
  * @param {Object} props
  * @param {import("@remix-run/node").ServerBuild} props.build
  */
-export default async function buildStreamHandler({ build }) {
+export default async function buildRequestHandler({ build }) {
 	const staticMap = /** @type Map<string, string> */ (new Map());
 
 	const publicPath = path.resolve(path.dirname(build.assetsBuildDirectory));
