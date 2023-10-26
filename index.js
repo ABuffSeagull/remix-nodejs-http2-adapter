@@ -64,7 +64,7 @@ export default async function buildRequestHandler({ build }) {
 			assert.ok(fullPath, `Path ${requestPath} went missing from static map`);
 
 			const contentType =
-				extensionMap.get(path.extname(requestPath)) ??
+				extensionMap.get(path.extname(requestPath).slice(1)) ??
 				"application/octet-stream";
 
 			let encoding = "identity";
