@@ -1,5 +1,5 @@
 {
-  "name": "remix-nodejs-builtin-adapter",
+  "name": "remix-nodejs-http2-adapter",
   "version": "0.1.0",
   "type": "module",
   "source": "./index.js",
