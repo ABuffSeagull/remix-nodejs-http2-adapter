@@ -14,7 +14,6 @@
     "dist/*",
     "index.js"
   ],
-  "private": true,
   "sideEffects": false,
   "scripts": {
     "prepare": "microbundle --target node --format esm,cjs"
