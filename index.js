@@ -9,8 +9,6 @@ import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import {
-	Request,
-	Response,
 	createReadableStreamFromReadable,
 	createRequestHandler,
 	writeReadableStreamToWritable,
