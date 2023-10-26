@@ -96,6 +96,7 @@ export default async function buildRequestHandler({ build }) {
 				method == "GET" || method == "HEAD"
 					? null
 					: createReadableStreamFromReadable(serverRequest),
+			duplex: true,
 			headers: otherRequestHeaders,
 			signal: controller.signal,
 		});
