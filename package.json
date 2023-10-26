@@ -23,7 +23,7 @@
     "@remix-run/node": "^2.0.0"
   },
   "engines": {
-    "node": ">=16"
+    "node": ">=18"
   },
   "dependencies": {
     "mime-db": "*"
