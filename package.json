@@ -18,14 +18,12 @@
   "scripts": {
     "prepare": "microbundle --target node --format esm,cjs"
   },
-  "peerDependencies": {
-    "@remix-run/node": "^2.0.0"
-  },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "mime-db": "*"
+    "mime-db": "*",
+    "@remix-run/node": "^2"
   },
   "devDependencies": {
     "@tsconfig/esm": "^1.0.2",
