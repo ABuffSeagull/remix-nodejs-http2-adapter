@@ -142,12 +142,17 @@ export default async function buildRequestHandler({ build }) {
 		} else {
 			serverResponse.end();
 		}
-		const duration = performance.now() - start;
-		this.emit("respond", {
-			duration,
-			request: new Request(request, { body: null }),
-			response: new Response(null, response),
-		});
+		if (this.listenerCount("response") > 0) {
+			const duration = performance.now() - start;
+			this.emit("response", {
+				duration,
+				request: new Request(`${scheme}://${authority}${requestPath}`, {
+					method: method,
+					headers: otherRequestHeaders,
+				}),
+				response: new Response(null, response),
+			});
+		}
 
 		await once(serverResponse, "finish");
 	};
