@@ -1,0 +1,10 @@
+{
+  "extends": "@tsconfig/node18/tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "module": "es2022",
+    "emitDeclarationOnly": true,
+    "composite": true
+  }
+}
