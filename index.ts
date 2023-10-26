@@ -1,19 +1,19 @@
-import '@total-typescript/ts-reset';
 import * as http2 from 'node:http2';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
+import {PassThrough} from 'node:stream';
+import {once} from 'node:events';
+import {performance} from 'node:perf_hooks';
 import {
 	Request,
 	createRequestHandler,
 	createReadableStreamFromReadable,
 	writeReadableStreamToWritable,
 	Response,
-	ServerBuild,
+	type ServerBuild,
 } from '@remix-run/node';
 import {lookup} from 'mrmime';
-import {PassThrough} from 'node:stream';
-import {once} from 'node:events';
 
 export default async function buildStreamHandler({build}: {build: ServerBuild}) {
 	const staticMap: Map<string, string> = new Map();

@@ -1,22 +1,30 @@
 {
-  "name": "remix-nodejs-builtin-adapter",
-  "type": "module",
-  "main": "index.js",
-  "private": true,
-  "sideEffects": false,
-  "peerDependencies": {
-    "@remix-run/node": "^1.14.3"
-  },
-  "engines": {
-    "node": ">=14"
-  },
-  "dependencies": {
-    "mrmime": "^1.0.1"
-  },
-  "devDependencies": {
-    "@total-typescript/ts-reset": "^0.4.2",
-    "@tsconfig/node18": "^1.0.1",
-    "@types/node": "18",
-    "typescript": "^5.0.2"
-  }
+	"name": "remix-nodejs-builtin-adapter",
+	"type": "module",
+	"exports": {
+		".": "./index.js"
+	},
+	"types": "index.d.ts",
+	"private": true,
+	"sideEffects": false,
+	"scripts": {
+		"prepare": "tsc --project tsconfig.json"
+	},
+	"peerDependencies": {
+		"@remix-run/node": "^1.14.3"
+	},
+	"engines": {
+		"node": ">=16"
+	},
+	"dependencies": {
+		"mrmime": "^1.0.1"
+	},
+	"devDependencies": {
+		"@total-typescript/ts-reset": "^0.4.2",
+		"@tsconfig/esm": "^1.0.2",
+		"@tsconfig/node16": "^1.0.3",
+		"@tsconfig/strictest": "^2.0.0",
+		"@types/node": "^16.18.21",
+		"typescript": "^5.0.2"
+	}
 }
