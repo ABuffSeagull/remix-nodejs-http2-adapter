@@ -1,6 +1,7 @@
 {
 	"extends": ["@tsconfig/node16/tsconfig.json", "@tsconfig/esm/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
 	"compilerOptions": {
-		"composite": true
+		"composite": true,
+		"sourceMap": true
 	}
 }
