@@ -2,7 +2,7 @@
   "name": "remix-nodejs-builtin-adapter",
   "version": "1.0.0",
   "type": "module",
-  "source": "./index.ts",
+  "source": "./index.js",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -25,7 +25,6 @@
     "mime-db": "^1.52.0"
   },
   "devDependencies": {
-    "@total-typescript/ts-reset": "^0.4.2",
     "@tsconfig/esm": "^1.0.2",
     "@tsconfig/node16": "^1.0.3",
     "@tsconfig/strictest": "^2.0.0",

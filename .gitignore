@@ -142,8 +142,3 @@ dist
 .svelte-kit
 
 # End of https://www.toptal.com/developers/gitignore/api/node
-
-index.d.ts
-index.js
-index.js.map
-index.d.ts.map
