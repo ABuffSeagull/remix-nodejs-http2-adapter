@@ -1,6 +1,6 @@
 {
   "name": "remix-nodejs-http2-adapter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "source": "./index.js",
   "main": "./dist/index.cjs",
