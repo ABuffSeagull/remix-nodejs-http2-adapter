@@ -1,12 +1,13 @@
 import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
+import { constants } from "node:http2";
 import * as path from "node:path";
-import * as zlib from "node:zlib";
 import { performance } from "node:perf_hooks";
+import process from "node:process";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import process from "node:process";
+import * as zlib from "node:zlib";
 
 import {
   createReadableStreamFromReadable,
@@ -38,10 +39,10 @@ export function buildRequestHandler({
     if (await staticHandler(serverResponse)) return;
 
     const {
-      ":scheme": scheme,
-      ":authority": authority,
-      ":path": requestPath,
-      ":method": method,
+      [constants.HTTP2_HEADER_SCHEME]: _scheme,
+      [constants.HTTP2_HEADER_AUTHORITY]: _authority,
+      [constants.HTTP2_HEADER_PATH]: _requestPath,
+      [constants.HTTP2_HEADER_METHOD]: _method,
       ...otherRequestHeaders
     } = serverRequest.headers;
     const controller = new AbortController();
@@ -59,12 +60,12 @@ export function buildRequestHandler({
     }
 
     const request = new Request(
-      `${scheme}://${authority ?? otherRequestHeaders.host}${requestPath}`,
+      `${serverRequest.scheme}://${serverRequest.authority}${serverRequest.url}`,
       {
-        method,
+        method: serverRequest.method,
         // TODO: replace with Readable.toWeb when stable
         body:
-          method == "GET" || method == "HEAD"
+          serverRequest.method == "GET" || serverRequest.method == "HEAD"
             ? null
             : createReadableStreamFromReadable(serverRequest),
         duplex: "half",
@@ -75,23 +76,20 @@ export function buildRequestHandler({
 
     const response = await handler(request);
 
-    let encoding = "identity";
-    const accept = serverRequest.headers["accept-encoding"] ?? "";
-    if (accept.includes("br")) {
-      encoding = "br";
-    } else if (accept.includes("gzip")) {
-      encoding = "gzip";
-    } else if (accept.includes("deflate")) {
-      encoding = "deflate";
-    }
+    const [encodingResult] = parseEncoding(
+      /** @type {string | undefined} */ (
+        otherRequestHeaders["accept-encoding"]
+      ) ?? "*",
+    );
+
     serverResponse.writeHead(response.status, {
       "cache-control": "no-cache",
-      "content-encoding": encoding,
+      "content-encoding": encodingResult?.encoding ?? "identity",
       ...Object.fromEntries(response.headers),
     });
     if (response.body) {
       let compression = null;
-      switch (encoding) {
+      switch (encodingResult?.encoding) {
         case "br": {
           compression = zlib.createBrotliCompress({
             [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
@@ -120,14 +118,64 @@ export function buildRequestHandler({
       const duration = performance.now() - start;
       this.emit("response", {
         duration,
-        request: new Request(`${scheme}://${authority}${requestPath}`, {
-          method: method,
-          headers,
-        }),
+        request: new Request(
+          `${serverRequest.scheme}://${serverRequest.authority}${serverRequest.url}`,
+          {
+            method: serverRequest.method,
+            headers,
+          },
+        ),
         response: new Response(null, response),
       });
     }
   };
+}
+
+const preferredEncodingOrder = [
+  "*",
+  "br",
+  "zstd",
+  "gzip",
+  "deflate",
+  "compress",
+  "identity",
+];
+const encodingExtensionMap = new Map([
+  ["br", "br"],
+  ["zstd", "zst"],
+  ["gzip", "gz"],
+  ["deflate", "gz"],
+  ["compress", "Z"],
+]);
+/**
+ * @param {string} encoding
+ */
+function parseEncoding(encoding) {
+  const encodingRegex =
+    /(?<encoding>(\w+|\*))(;q=(?<weight>(0|1)(\.\d{0,3})?))?/gm;
+
+  /** @type {Array<{encoding: string; weight: number}>} */
+  let encodings = [];
+  for (const match of encoding.matchAll(encodingRegex)) {
+    if (match.groups == null || match.groups["encoding"] == null) continue;
+
+    const weight = Number(match.groups["weight"] ?? 0);
+    if (weight != 0) {
+      encodings.push({
+        encoding: match.groups["encoding"],
+        weight: Number.isNaN(weight) ? 1 : weight,
+      });
+    }
+  }
+
+  encodings.sort((a, b) =>
+    a.weight == b.weight
+      ? preferredEncodingOrder.indexOf(a.encoding) -
+        preferredEncodingOrder.indexOf(b.encoding)
+      : a.weight - b.weight,
+  );
+
+  return encodings;
 }
 
 /**
@@ -154,34 +202,43 @@ export async function buildDefaultStaticHandler(build) {
     const controller = new AbortController();
     request.once("aborted", () => controller.abort());
 
-    const { ":path": requestPath } = request.headers;
+    const { pathname } = new URL(
+      request.url,
+      `${request.scheme}://${request.authority}`,
+    );
 
-    if (!requestPath || !staticMap.has(requestPath)) return false;
-    const cacheValue = requestPath.startsWith(build.publicPath)
+    if (!staticMap.has(pathname)) return false;
+
+    const cacheValue = pathname.startsWith(build.publicPath)
       ? `max-age=${60 * 60 * 24 * 365}, immutable`
       : `max-age=${60 * 60 * 6}`;
 
-    const fullPath =
-      staticMap.get(`${requestPath}.br`) ??
-      staticMap.get(`${requestPath}.gz`) ??
-      staticMap.get(requestPath);
-
-    assert.ok(fullPath, `Path ${requestPath} went missing from static map`);
+    let encoding = "identity";
+    let filePath = staticMap.get(pathname);
+    assert.ok(filePath != null, "File has gone missing");
+    const acceptEncoding =
+      /** @type {Record<string, string>} */ (request.headers)[
+        constants.HTTP2_HEADER_ACCEPT_ENCODING
+      ] ?? "*";
+    for (const requestedEncoding of parseEncoding(acceptEncoding)) {
+      const extension = encodingExtensionMap.get(requestedEncoding.encoding);
+      if (extension) {
+        const foundPath = staticMap.get(`${pathname}.${extension}`);
+        if (foundPath) {
+          filePath = foundPath;
+          encoding = requestedEncoding.encoding;
+          break;
+        }
+      }
+    }
 
     const contentType =
-      extensionMap.get(path.extname(requestPath).slice(1)) ??
+      extensionMap.get(path.extname(pathname).slice(1)) ??
       "application/octet-stream";
-
-    let encoding = "identity";
-    if (fullPath.endsWith(".br")) {
-      encoding = "br";
-    } else if (fullPath.endsWith(".gz")) {
-      encoding = "gzip";
-    }
 
     try {
       await pipeline(
-        fs.createReadStream(fullPath),
+        fs.createReadStream(filePath),
         response.writeHead(200, {
           "cache-control": `public, ${cacheValue}`,
           "content-type": contentType,
