@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@tsconfig/node18": "^18.2.2",
+    "@tsconfig/strictest": "^2.0.2",
     "@types/mime-db": "^1.43.1",
     "@types/node": "^18.0.0",
     "microbundle": "^0.15.1",

@@ -1,6 +1,6 @@
 {
   "files": ["index.js"],
-  "extends": ["@tsconfig/node18/tsconfig.json"],
+  "extends": ["@tsconfig/node18/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
   "compilerOptions": {
     "allowJs": true,
     "checkJs": true,
