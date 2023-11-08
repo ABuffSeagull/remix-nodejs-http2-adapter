@@ -8,6 +8,7 @@ import process from "node:process";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as zlib from "node:zlib";
+import * as tls from "node:tls";
 
 import {
   createReadableStreamFromReadable,
@@ -21,6 +22,16 @@ import {
  * @param {(req: import('node:http2').Http2ServerResponse) => Promise<boolean>} props.staticHandler
  * @param {typeof process.env.NODE_ENV} [props.mode=process.env.NODE_ENV]
  */
+/**
+ * @typedef {(scheme: 'http' | 'https', req: import('node:http').IncomingMessage | import('node:http2').Http2ServerRequest, res: import('node:http').ServerResponse | import('node:http2').Http2ServerResponse) => Promise<boolean>} StaticHandler
+ */
+
+/**
+ * @param {Object} props
+ * @param {import("@remix-run/node").ServerBuild} props.build
+ * @param {StaticHandler} props.staticHandler
+ * @param {typeof process.env.NODE_ENV} [props.mode=process.env.NODE_ENV]
+ */
 export function buildRequestHandler({
   build,
   staticHandler,
@@ -29,18 +40,20 @@ export function buildRequestHandler({
   const handler = createRequestHandler(build, mode);
 
   /**
-   * @this {import("http2").Http2Server}
-   * @param {import("http2").Http2ServerRequest} serverRequest
-   * @param {import("http2").Http2ServerResponse} serverResponse
+   * @this {import('node:http').Server | import('node:https').Server | import('node:http2').Http2Server | import("node:http2").Http2SecureServer}
+   * @param {import('node:http').IncomingMessage | import("node:http2").Http2ServerRequest} serverRequest
+   * @param {import('node:http').ServerResponse | import("node:http2").Http2ServerResponse} serverResponse
    */
   return async function onRequest(serverRequest, serverResponse) {
     const start = performance.now();
 
-    if (await staticHandler(serverResponse)) return;
+    const scheme = this instanceof tls.Server ? "https" : "http";
+
+    if (await staticHandler(scheme, serverRequest, serverResponse)) return;
 
     const {
       [constants.HTTP2_HEADER_SCHEME]: _scheme,
-      [constants.HTTP2_HEADER_AUTHORITY]: _authority,
+      [constants.HTTP2_HEADER_AUTHORITY]: h2Authority,
       [constants.HTTP2_HEADER_PATH]: _requestPath,
       [constants.HTTP2_HEADER_METHOD]: _method,
       ...otherRequestHeaders
@@ -59,10 +72,12 @@ export function buildRequestHandler({
       }
     }
 
+    const authority = h2Authority ?? serverRequest.headers["host"];
+
     const request = new Request(
-      `${serverRequest.scheme}://${serverRequest.authority}${serverRequest.url}`,
+      `${scheme}://${authority}${serverRequest.url}`,
       {
-        method: serverRequest.method,
+        method: /** @type {string} */ (serverRequest.method),
         // TODO: replace with Readable.toWeb when stable
         body:
           serverRequest.method == "GET" || serverRequest.method == "HEAD"
@@ -118,13 +133,10 @@ export function buildRequestHandler({
       const duration = performance.now() - start;
       this.emit("response", {
         duration,
-        request: new Request(
-          `${serverRequest.scheme}://${serverRequest.authority}${serverRequest.url}`,
-          {
-            method: serverRequest.method,
-            headers,
-          },
-        ),
+        request: new Request(`${scheme}://${authority}${serverRequest.url}`, {
+          method: /** @type {string} */ (serverRequest.method),
+          headers,
+        }),
         response: new Response(null, response),
       });
     }
@@ -194,17 +206,18 @@ export async function buildDefaultStaticHandler(build) {
       extensionMap.set(ext, mimeType);
     }
   }
-  /**
-   * @param {import('node:http2').Http2ServerResponse} response
-   */
-  return async (response) => {
-    const { req: request } = response;
+  /** @type {StaticHandler} */
+  return async (scheme, request, response) => {
     const controller = new AbortController();
     request.once("aborted", () => controller.abort());
 
+    const authority =
+      request.headers[constants.HTTP2_HEADER_AUTHORITY] ??
+      request.headers["host"];
+
     const { pathname } = new URL(
-      request.url,
-      `${request.scheme}://${request.authority}`,
+      /** @type {string} */ (request.url),
+      `${scheme}://${authority}`,
     );
 
     if (!staticMap.has(pathname)) return false;
@@ -252,7 +265,7 @@ export async function buildDefaultStaticHandler(build) {
         "code" in error &&
         error.code == "ABORT_ERR"
       ) {
-        return;
+        return false;
       }
       throw error;
     }
